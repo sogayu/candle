@@ -101,6 +101,25 @@ fn upsample_nearest2d(dev: &Device) -> Result<()> {
     Ok(())
 }
 
+fn upsample_bilinear2d(dev: &Device) -> Result<()> {
+    let t = Tensor::arange(0f32, 6f32, dev)?.reshape((1, 1, 2, 3))?;
+    let upsampled = t.upsample_bilinear2d(4, 6)?.i(0)?.i(0)?;
+    assert_eq!(
+        t.i(0)?.i(0)?.to_vec2::<f32>()?,
+        [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]
+    );
+    assert_eq!(
+        upsampled.to_vec2::<f32>()?,
+        [
+            [0.0, 0.4, 0.8, 1.2, 1.6, 2.0],
+            [1.0, 1.4, 1.8, 2.2, 2.6, 3.0],
+            [2.0, 2.4, 2.8, 3.2, 3.6, 4.0],
+            [3.0, 3.4, 3.8, 4.2, 4.6, 5.0]
+        ]
+    );
+    Ok(())
+}
+
 test_device!(avg_pool2d, avg_pool2d_cpu, avg_pool2d_gpu, avg_pool2d_metal);
 test_device!(
     avg_pool2d_pytorch,
@@ -114,4 +133,10 @@ test_device!(
     upsample_nearest2d_cpu,
     upsample_nearest2d_gpu,
     upsample_nearest2d_metal
+);
+test_device!(
+    upsample_bilinear2d,
+    upsample_bilinear2d_cpu,
+    upsample_bilinear2d_gpu,
+    upsample_bilinear2d_metal
 );

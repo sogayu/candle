@@ -118,6 +118,7 @@ impl Tensor {
                     Op::Reshape(node)
                     | Op::UpsampleNearest1D { arg: node, .. }
                     | Op::UpsampleNearest2D { arg: node, .. }
+                    | Op::UpsampleBilinear2D { arg: node, .. }
                     | Op::AvgPool2D { arg: node, .. }
                     | Op::MaxPool2D { arg: node, .. }
                     | Op::Copy(node)
@@ -406,6 +407,85 @@ impl Tensor {
                         let conv_sum = grad.conv2d(&kernel, 0, scale_h, 1, c)?;
                         let sum_grad = grads.or_insert(arg)?;
                         *sum_grad = conv_sum;
+                    }
+                    Op::UpsampleBilinear2D {
+                        arg,
+                        target_h,
+                        target_w,
+                    } => {
+                        let (b_size, c_size, h_in, w_in) = arg.dims4()?;
+                        let dev = arg.device();
+                        let h_scale = if *target_h > 1 {
+                            (h_in - 1) as f64 / (target_h - 1) as f64
+                        } else {
+                            0.0
+                        };
+                        let w_scale = if *target_w > 1 {
+                            (w_in - 1) as f64 / (target_w - 1) as f64
+                        } else {
+                            0.0
+                        };
+
+                        // 1. 入力勾配を格納するための、フラットな可変ベクターをゼロで初期化
+                        let mut grad_arg_vec = vec![0f32; arg.elem_count()];
+
+                        // gradテンソルをループ処理
+                        for b in 0..b_size {
+                            for c in 0..c_size {
+                                for y_out in 0..*target_h {
+                                    for x_out in 0..*target_w {
+                                        let y_in_f = y_out as f64 * h_scale;
+                                        let x_in_f = x_out as f64 * w_scale;
+
+                                        let y_in = y_in_f.floor() as isize;
+                                        let x_in = x_in_f.floor() as isize;
+
+                                        let dy = y_in_f - y_in as f64;
+                                        let dx = x_in_f - x_in as f64;
+
+                                        let g_scalar = grad
+                                            .get(b)?
+                                            .get(c)?
+                                            .get(y_out)?
+                                            .get(x_out)?
+                                            .to_scalar::<f32>()?;
+
+                                        let neighbors = [
+                                            (y_in, x_in, (1.0 - dy) * (1.0 - dx)),
+                                            (y_in, x_in + 1, (1.0 - dy) * dx),
+                                            (y_in + 1, x_in, dy * (1.0 - dx)),
+                                            (y_in + 1, x_in + 1, dy * dx),
+                                        ];
+
+                                        for (y, x, w) in neighbors.iter() {
+                                            if *y >= 0
+                                                && *y < h_in as isize
+                                                && *x >= 0
+                                                && *x < w_in as isize
+                                            {
+                                                let y_usize = *y as usize;
+                                                let x_usize = *x as usize;
+
+                                                // 2. 4次元のインデックスを1次元のフラットなインデックスに変換
+                                                let idx = b * (c_size * h_in * w_in)
+                                                    + c * (h_in * w_in)
+                                                    + y_usize * w_in
+                                                    + x_usize;
+
+                                                // 3. 計算した勾配の値をベクターの対応する位置に加算
+                                                grad_arg_vec[idx] += g_scalar * (*w as f32);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. 計算が完了したベクターから、最終的な勾配テンソルを生成
+                        let grad_arg = Tensor::from_vec(grad_arg_vec, arg.shape(), dev)?;
+
+                        let sum_grad = grads.or_insert(arg)?;
+                        *sum_grad = (sum_grad.contiguous()? + grad_arg)?;
                     }
                     Op::SliceScatter0(lhs, rhs, start_rhs) => {
                         let rhs_sum_grad = grads.or_insert(rhs)?;

@@ -1159,6 +1159,19 @@ impl Tensor {
         self.interpolate2d(target_h, target_w)
     }
 
+    pub fn upsample_bilinear2d(&self, target_h: usize, target_w: usize) -> Result<Self> {
+        let (n, c, _h, _w) = self.dims4()?;
+        let op = BackpropOp::new1(self, |arg| Op::UpsampleBilinear2D {
+            arg,
+            target_h,
+            target_w,
+        });
+        let storage = self
+            .storage()
+            .upsample_bilinear2d(self.layout(), target_h, target_w)?;
+        Ok(from_storage(storage, (n, c, target_h, target_w), op, false))
+    }
+
     /// 2D average pooling over an input tensor with multiple channels.
     ///
     /// The input tensor should have four dimensions, `(batch, channels, h, w)`, the returned

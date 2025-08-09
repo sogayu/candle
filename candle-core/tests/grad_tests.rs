@@ -460,6 +460,79 @@ fn unary_grad(device: &Device) -> Result<()> {
         test_utils::to_vec3_round(&grad_x.flatten(0, 1)?, 4)?,
         [[[14_f32, 22.], [46., 54.]], [[78., 86.], [110., 118.]]]
     );
+
+    // manually checked: see comments
+    let x = Var::new(&[[[[1f32, 2., 3.], [4., 5., 6.], [7., 8., 9.]]]], device)?;
+    let y = x.upsample_bilinear2d(6, 6)?.reshape(36)?;
+
+    let z = Tensor::new(
+        &[
+            1_f32, 02., 03., 04., 05., 06., 07., 08., 09., 10., 11., 12., 13., 14., 15., 16., 17.,
+            18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 32., 33., 34.,
+            35., 36.,
+        ],
+        device,
+    )?;
+    let loss = y.unsqueeze(1)?.transpose(0, 1)?.matmul(&z.unsqueeze(1)?)?;
+    let grads = loss.backward()?;
+    let grad_x = grads.get(&x).context("no grad for x")?;
+    assert_eq!(
+        test_utils::to_vec2_round(&grad_x.flatten(0, 2)?, 4)?,
+        [
+            [15.84, 29.52, 28.44],
+            [71.52, 106.56, 88.32],
+            [91.44, 130.32, 104.04]
+        ]
+    );
+    // manually checked: see comments
+    let x = Var::new(&[[[[1f32, 2.], [4., 5.]]]], device)?;
+    let y = x.upsample_bilinear2d(6, 6)?.reshape(36)?;
+    let z = Tensor::new(
+        &[
+            1_f32, 02., 03., 04., 05., 06., 07., 08., 09., 10., 11., 12., 13., 14., 15., 16., 17.,
+            18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29., 30., 31., 32., 33., 34.,
+            35., 36.,
+        ],
+        device,
+    )?;
+    let loss = y.unsqueeze(1)?.transpose(0, 1)?.matmul(&z.unsqueeze(1)?)?;
+    let grads = loss.backward()?;
+    let grad_x = grads.get(&x).context("no grad for x")?;
+    assert_eq!(
+        test_utils::to_vec2_round(&grad_x.flatten(0, 2)?, 4)?,
+        [[93.0, 114.0], [219.0, 240.0]]
+    );
+    // manually checked: see comments
+    let x = Var::new(
+        &[[[[1f32, 2.], [4., 5.]]], [[[6f32, 7.], [8., 9.]]]],
+        device,
+    )?;
+    let y = x.upsample_bilinear2d(4, 4)?.reshape(32)?;
+    #[rustfmt::skip]
+       let z = Tensor::new(
+           &[
+               1_f32, 02., 03., 04.,
+               05.,   06., 07., 08.,
+               09.,   10., 11., 12.,
+               13.,   14., 15., 16.,
+               17.,   18., 19., 20.,
+               21.,   22., 23., 24.,
+               25.,   26., 27., 28.,
+               29.,   30., 31., 32.
+           ],
+           device,
+       )?;
+    let loss = y.unsqueeze(1)?.transpose(0, 1)?.matmul(&z.unsqueeze(1)?)?;
+    let grads = loss.backward()?;
+    let grad_x = grads.get(&x).context("no grad for x")?;
+    assert_eq!(
+        test_utils::to_vec3_round(&grad_x.flatten(0, 1)?, 4)?,
+        [
+            [[17.3333, 24.0], [44.0, 50.6667]],
+            [[81.3333, 88.0], [108.0, 114.6667]]
+        ]
+    );
+
     Ok(())
 }
 

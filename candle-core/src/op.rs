@@ -146,6 +146,11 @@ pub enum Op {
         target_h: usize,
         target_w: usize,
     },
+    UpsampleBilinear2D {
+        arg: Tensor,
+        target_h: usize,
+        target_w: usize,
+    },
 
     Cat(Vec<Tensor>, usize),
 

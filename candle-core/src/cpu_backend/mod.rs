@@ -451,6 +451,85 @@ impl Map1 for UpsampleNearest2D {
     }
 }
 
+struct UpsampleBilinear2D(usize, usize);
+
+impl Map1 for UpsampleBilinear2D {
+    fn f<T: WithDType>(&self, src: &[T], layout: &Layout) -> Result<Vec<T>> {
+        let (dst_h, dst_w) = (self.0, self.1);
+        let (b_sz, c, src_h, src_w) = layout.shape().dims4()?;
+        let stride = layout.stride();
+        let (stride_h, stride_w) = (stride[2], stride[3]);
+        let src_index = layout.start_offset();
+        let scale_h = if dst_h > 1 {
+            (src_h - 1) as f64 / (dst_h - 1) as f64
+        } else {
+            0.0
+        };
+        let scale_w = if dst_w > 1 {
+            (src_w - 1) as f64 / (dst_w - 1) as f64
+        } else {
+            0.0
+        };
+        let y0s = (0..dst_h)
+            .map(|h_idx| (h_idx as f64 * scale_h).floor() as usize)
+            .collect::<Vec<_>>();
+        let y1s = (0..dst_h)
+            .map(|h_idx| {
+                let y0 = (h_idx as f64 * scale_h).floor() as usize;
+                usize::min(y0 + 1, src_h - 1)
+            })
+            .collect::<Vec<_>>();
+        let dys = (0..dst_h)
+            .map(|h_idx| {
+                let y_f = h_idx as f64 * scale_h;
+                y_f - y_f.floor()
+            })
+            .collect::<Vec<_>>();
+        let x0s = (0..dst_w)
+            .map(|w_idx| (w_idx as f64 * scale_w).floor() as usize)
+            .collect::<Vec<_>>();
+        let x1s = (0..dst_w)
+            .map(|w_idx| {
+                let x0 = (w_idx as f64 * scale_w).floor() as usize;
+                usize::min(x0 + 1, src_w - 1)
+            })
+            .collect::<Vec<_>>();
+        let dxs = (0..dst_w)
+            .map(|w_idx| {
+                let x_f = w_idx as f64 * scale_w;
+                x_f - x_f.floor()
+            })
+            .collect::<Vec<_>>();
+        let mut dst = vec![T::zero(); b_sz * c * dst_h * dst_w];
+        for b_idx in 0..b_sz {
+            let dst = &mut dst[b_idx * c * dst_h * dst_w..];
+            let src_index = src_index + b_idx * stride[0];
+            for c_idx in 0..c {
+                let dst = &mut dst[c_idx * dst_h * dst_w..];
+                let src_index = src_index + c_idx * stride[1];
+                for (h_idx, &y0) in y0s.iter().enumerate() {
+                    let y1 = y1s[h_idx];
+                    let dy = dys[h_idx];
+                    for (w_idx, &x0) in x0s.iter().enumerate() {
+                        let x1 = x1s[w_idx];
+                        let dx = dxs[w_idx];
+                        let v00 = src[src_index + y0 * stride_h + x0 * stride_w].to_f64();
+                        let v01 = src[src_index + y0 * stride_h + x1 * stride_w].to_f64();
+                        let v10 = src[src_index + y1 * stride_h + x0 * stride_w].to_f64();
+                        let v11 = src[src_index + y1 * stride_h + x1 * stride_w].to_f64();
+                        let val = v00 * (1.0 - dy) * (1.0 - dx)
+                            + v01 * (1.0 - dy) * dx
+                            + v10 * dy * (1.0 - dx)
+                            + v11 * dy * dx;
+                        dst[h_idx * dst_w + w_idx] = T::from_f64(val);
+                    }
+                }
+            }
+        }
+        Ok(dst)
+    }
+}
+
 struct Gather<'a, I: IntDType> {
     ids: &'a [I],
     ids_l: &'a Layout,
@@ -2076,6 +2155,10 @@ impl BackendStorage for CpuStorage {
 
     fn upsample_nearest2d(&self, layout: &Layout, h: usize, w: usize) -> Result<Self> {
         UpsampleNearest2D(h, w).map(self, layout)
+    }
+
+    fn upsample_bilinear2d(&self, layout: &Layout, h: usize, w: usize) -> Result<Self> {
+        UpsampleBilinear2D(h, w).map(self, layout)
     }
 
     fn powf(&self, layout: &Layout, e: f64) -> Result<Self> {
