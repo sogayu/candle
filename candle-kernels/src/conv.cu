@@ -577,6 +577,11 @@ __device__ void upsample_bilinear2d(
     double wx = src_w_f - x0;
     double wy = src_h_f - y0;
 
+    // 重みをテンプレート型Tにキャスト
+    T wxT = static_cast<T>(wx);
+    T wyT = static_cast<T>(wy);
+    T one = static_cast<T>(1.0);
+
     size_t idx00 = b_idx * src_s[0] + c_idx * src_s[1] + x0 * src_s[2] + y0 * src_s[3];
     size_t idx01 = b_idx * src_s[0] + c_idx * src_s[1] + x0 * src_s[2] + y1 * src_s[3];
     size_t idx10 = b_idx * src_s[0] + c_idx * src_s[1] + x1 * src_s[2] + y0 * src_s[3];
@@ -587,10 +592,10 @@ __device__ void upsample_bilinear2d(
     T v10 = src[idx10];
     T v11 = src[idx11];
 
-    T val = (T)((1 - wx) * (1 - wy) * v00 +
-                (1 - wx) * wy       * v01 +
-                wx       * (1 - wy) * v10 +
-                wx       * wy       * v11);
+    T val = (one - wxT) * (one - wyT) * v00 +
+            (one - wxT) * wyT       * v01 +
+            wxT       * (one - wyT) * v10 +
+            wxT       * wyT         * v11;
 
     dst[dst_i] = val;
 }
